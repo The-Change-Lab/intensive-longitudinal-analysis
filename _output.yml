@@ -1,0 +1,21 @@
+bookdown::bs4_book:
+  css: style.css
+  theme:
+    primary: "#8c1515"   
+    base_font: 
+      google: Source Sans 3
+    heading_font:
+      google:
+        family: Source Serif 4
+    code_font:
+      google: 
+        # arguments to sass::font_google() 
+        family: DM Mono
+        local: false
+bookdown::pdf_book:
+  includes:
+    in_header: preamble.tex
+  latex_engine: xelatex
+  citation_package: natbib
+  keep_tex: yes
+bookdown::epub_book: default

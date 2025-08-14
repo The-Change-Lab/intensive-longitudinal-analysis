@@ -1,0 +1,456 @@
+
+# Data, Descriptives & Data Viz {#data-descriptives-dataviz}
+
+This tutorial walks through a few helpful initial steps before analysis of experience sampling and EMA data (or any analyses, actually).
+
+## Outline
+
+This chapter covers ...
+
+A. Loading the AMIB data
+
+B. Describing some aspects of the data
+
+C. A few data visualizations
+
+### Loading Libraries Used in this Script
+
+```{r packages, message=F, warning=F}
+library(psych)      #describing the data
+library(tidyr)      #tidy data
+library(dplyr)      #data manipulation
+library(ggplot2)    #data visualization
+
+#you can load tidyverse (dplyr, forcats, ggplot2, lubridate, purr, rear, stringr, tibble, tidyr) via:
+#library(tidyverse)
+#we do this in lots of our tutorials and in our own work!
+```
+
+**If you have issues installing the psych package - try installing the psych package again without compilation**
+
+## Loading The AMIB Data
+
+The first step, and often the most frustrating part of data analysis is...getting the data into the program!
+
+In recent years people are generally exchanging data files in a .csv format as these files port well and can interface with many different software packages.
+
+Here, we make use of the person-level and interaction-level (EMA-type) AMIB data files, which can be merged easily using the `id` and `day` variables.
+
+### Loading person-level file (*N* = 190)
+
+```{r data person, message=F, warning=F}
+#set filepath for data file
+filepath <- "https://raw.githubusercontent.com/The-Change-Lab/collaborations/main/AMIB/AMIB_persons.csv"
+#read in the .csv file using the url() function
+AMIB_persons <- read.csv(file=url(filepath), header=TRUE)
+```
+
+### Loading interaction-level file (*T* = many, on average 43 per person)
+
+```{r data interaction, message=F}
+#set filepath for data file
+filepath <- "https://raw.githubusercontent.com/The-Change-Lab/collaborations/main/AMIB/AMIB_interaction.csv"
+#read in the .csv file using the url() function
+AMIB_interaction <- read.csv(file=url(filepath), header=TRUE)
+```
+
+## Describing The AMIB Data
+
+Once the data are in, we can begin learning about them.
+
+### Basic descriptives of person-level data
+
+#### Subsetting to a few variables
+
+```{r sub person, message=F}
+#subsetting to a few trait variables
+AMIB_persons <- AMIB_persons %>%
+  select(id, sex, bfi_o, bfi_c, bfi_e, bfi_a, bfi_n)
+#note, subsetting with the same name will override the original data that you loaded, and you'll loose the variables you don't select
+#if you don't want to loose those variables, subset to a new data frame, ie: AMIB_persons_sub <- AMIB_persons
+```
+
+### Descriptives of traits using person-level data (sex, personality)
+
+```{r describe, message=F}
+#basic descriptives (using describe() from the psych package)
+psych::describe(AMIB_persons)
+#note: some psych and dplyr functions overlap. You have to specify your package by package::function(data)
+
+#correlations
+cor(AMIB_persons[ ,-1]) #dropping 1st column (id)
+
+#plot matrix (usingpairs.panels from the psych package)
+psych::pairs.panels(AMIB_persons[ ,-1])
+```
+
+Note that the person-level descriptives are "cross-sectional".
+
+### Basic descriptives of interaction-level data
+
+Subsetting to a few variables:
+
+-   ID and TIME variables: `id`, `day`, `interaction`, `timea`
+
+-   Outcome variables: `partner_gender`, `agval`, `stress`
+
+```{r sub interaction, message=FALSE}
+#subsetting to a few variables
+AMIB_interaction <- AMIB_interaction %>%
+  select(id, day, interaction, timea, partner_gender, agval, stress)
+```
+
+Often, our analyses will make use of both the repeated measures data and the person-level data.
+For illustration, we merge them here.
+
+### Merging person-level data into repeated measures interaction-level data
+
+```{r merge data}
+#merging repeated measures and person-level data
+interaction_long <- AMIB_interaction %>%
+  left_join(AMIB_persons, by="id")
+
+#look at first few rows of data
+head(interaction_long, 10)
+
+#checking number of persons
+length(unique(interaction_long$id))
+```
+
+Note that there are only 184 persons in the data now (vs. *N* = 190 in the person-level file).
+
+In this case, the discrepancy is because there were 6 persons that completed baseline questionnaires, but did not provide any EMA data.
+
+### Descriptives of the merged interaction-level and person-level data
+
+```{r descrbe merged, message=F}
+#basic descriptives
+psych::describe(interaction_long)
+
+#plot matrix
+psych::pairs.panels(interaction_long[ ,c("partner_gender","agval","stress")])
+```
+
+**BE CAREFUL!**
+
+These descriptives ignore the nesting of the data (i.e., they are a mix of within-person and between-person information).
+
+### Describing compliance (and missing data)
+
+Among the first steps when describing experience sampling data is describing the number of observations.
+*The protocol was designed for 8 reports per day for 7 days = 56 observations maximum per person.*
+
+```{r compliance, message=FALSE}
+# counts of days (day 0 to day 8) completed
+table(interaction_long$day)
+
+#counting number of days and interaction reports completed for each person
+compliance_stats <- interaction_long %>%
+  group_by(id) %>%   #specify the unit we want to summarise by, in this case per person
+  summarise(num_days = length(unique(day)),
+            num_obs = length(id))
+
+# looking at counts
+describe(compliance_stats)
+table(compliance_stats$num_days, useNA = "always")
+table(compliance_stats$num_obs, useNA = "always")
+
+#histogram
+compliance_stats %>%
+  ggplot(aes(x = num_obs)) +
+  geom_histogram(fill="white", color="black") + 
+  labs(x = "Number of Observations Completed")
+```
+
+Note that the specific way one does these counts depends on the structure of the initial data file - e.g., whether missed reports included or not (here they were not).
+The counts can then be summarized for inclusion in a report.
+
+### Long and Wide Format Data
+
+Behavioral science tends to use relational data structures - i.e., spreadsheets.
+Typically the data are stored/configured as a data frame (a “fancy” matrix) with multiple rows and multiple columns.
+
+Two main schema are used to accommodate repeated measures data: “Wide Format” and “Long Format”.
+
+Different functions work with different kinds of data formats.
+Thus, it is imperative that one can convert the data back and forth between wide and long formats.
+
+#### Reshape the data from ***Long*** to ***Wide***
+
+There are lots of ways to go from long to wide or wide to long.
+
+With the popularity of tidyverse, `pivot_wider` and `pivot_longer` are taking over for reshaping.
+Tidyverse has a good guide for `pivot_wider` [here](https://tidyr.tidyverse.org/reference/pivot_wider.html) and for `pivot_longer` [here](https://tidyr.tidyverse.org/reference/pivot_longer.html).
+
+Older popular functions include the `reshape()` function (not to be confused with the reshape2 package) and `melt()` and `cast()` functions in the reshape2 package.
+
+```{r reshape, message=FALSE}
+#trick to get variable names for easy cut-and-paste
+dput(names(interaction_long))
+
+#reshaping long to wide (using tidyr package)
+interaction_wide <-interaction_long %>%
+  select(-day) %>% #dropping variables not needed
+  rename(partnergender = partner_gender) %>% #renaming to make reshaping easier later
+  pivot_wider(id_cols = c(id, sex, bfi_o, bfi_c, bfi_e, bfi_a, bfi_n), #column(s) to keep as is
+              names_from = interaction, #column(s) by which to pivot
+              values_from = c(timea, partnergender, agval, stress), #column(s) that you want to pivot wider
+              names_sep = "_")
+
+#looking at part of data file
+head(interaction_wide[,1:10], 10)
+```
+
+*Note that the interaction_wide data has 184 rows, and that NAs have been filled in for those with less than 56 reports.*
+
+#### Reshape the data from *Wide* to *Long*
+
+```{r wide to long, message=FALSE}
+#reshaping long to wide (using tidyr package)
+interaction_long_NEW <-interaction_wide %>%
+  pivot_longer(!c(id, sex, bfi_o, bfi_c, bfi_e, bfi_a, bfi_n), #column(s) that you want to keep the same
+               #when calling an existing column, as in the line above, quotation marks are NOT needed
+               names_to = c("variable", "interaction"), #variables to create
+               #when naming a new column, as in "names_to" above, quotation marks ARE needed
+               names_sep = "_", #what character separates the column names
+               values_to = "value")
+
+interaction_long_NEW <-interaction_long_NEW %>%
+  pivot_wider(id_cols = c(id, sex, bfi_o, bfi_c, bfi_e, bfi_a, bfi_n, interaction),
+              names_from = "variable", #column(s) to pivot by,
+              values_from = "value")
+#Note, while this pivot can be done in one step, it's common to use multiple pivots to get the data in the exact shape you want. 
+#It's good practice to check along the way how your data is structured. 
+
+#looking at part of data file
+head(interaction_long_NEW, 10)
+```
+
+*Note that the interaction_long_NEW data has 10304 rows, whereas the original data interaction_long had only 7568 rows. This is because NAs were filled in for all of those persons with less than 56 reports.*
+
+**BE CAREFUL WITH RESHAPE** **THE ARGUMENTS NEEDED ARE NOT ALWAYS STRAIGHTFORWARD.**
+
+Be sure that the missing data (NAs) have been handled in the intended way.
+
+## Data Visualization
+
+There are lots of ways to visualize repeated measures data.
+We encourage you to engage in lots of data visualization and learn as much about the data as possible.
+Here we provide just a few useful time-series oriented plots using the `ggplot()` functions in the [ggplot2 package](https://ggplot2.tidyverse.org/).
+
+### Plotting one variable over time for all persons.
+
+```{r plot overtime}
+# plotting intraindividual change 
+interaction_long %>%
+  ggplot(aes(x=interaction, y=agval, group=id, color=factor(id))) +
+  guides(color="none") + # to suppress guide
+  # first variable
+  geom_line() +
+  # plot layouts
+  scale_x_continuous(breaks=c(0,8,16,24,32,40,48,56), name="Interaction") +
+  scale_y_continuous(breaks=c(1,3,5,7,9), name="Affect Valence") +  
+  ggtitle("Intraindividual Variability\nAcross Social Interactions (N=184)") +
+  theme_classic() +
+  theme(axis.title=element_text(size=14),
+        axis.text=element_text(size=14),
+        plot.title=element_text(size=14, hjust=.5))
+```
+
+That "blob" is not very informative.
+Better to consider a subset of persons or to consider *intraindividual* plots - how each individual person changes over time.
+
+### Plotting one variable over time for subset of persons
+
+```{r plot overtime subset}
+# plotting intraindividual change 
+interaction_long %>%
+  filter(id < 112) %>% #filter for ids 101-111
+  ggplot(aes(x=interaction, group=id), color=factor(id)) +
+  guides(color="none") + #to suppress guide
+  # first variable
+  geom_line(aes(y=agval, color=factor(id))) +
+  # plot layouts
+  scale_x_continuous(breaks=c(0,8,16,24,32,40,48,56), name="Interaction") +
+  scale_y_continuous(breaks=c(1,3,5,7,9), name="Affect Valence") +  
+  ggtitle("Intraindividual Variability\nAcross Social Interactions (n=10)") +
+  theme_classic() +
+  theme(axis.title=element_text(size=14),
+        axis.text=element_text(size=14),
+        plot.title=element_text(size=14, hjust=.5))
+```
+
+Now move on to *intraindividual* plots
+
+### Plotting two variables for one person
+
+```{r plot two vars one person, message=FALSE}
+#set colors
+cols <- c("Affect Valence"="#F27781", "Stress"="#18298C")
+#plotting intraindividual change 
+interaction_long %>%
+  filter(id == 104) %>%
+  ggplot(aes(x=interaction, group= id)) +
+  # first variable
+  geom_line(aes(y=agval, colour="Affect Valence")) +
+  geom_point(aes(y=agval, colour="Affect Valence")) +
+  # second variable
+  geom_line(aes(y=stress, color="Stress")) +
+  geom_point(aes(y=stress, color="Stress")) +
+  # plot layouts
+  scale_x_continuous(breaks=c(0,8,16,24,32,40,48,56), name="Social Interaction") +
+  scale_y_continuous(breaks=c(0,2,4,6,8), name="Affect Valence & Stress") + 
+  scale_color_manual(name="", values = cols) +
+  ggtitle("Intraindividual Variability in Affect Valence and Stress\nAcross Social Interactions (n=1)") +
+  theme_classic() +
+  theme(axis.title=element_text(size=14),
+        axis.text=element_text(size=14),
+        plot.title=element_text(size=14, hjust=.5),
+        legend.text=element_text(size=14))
+```
+
+Line plots are good for continuous variables.
+Note however, that the scales for these two variables do overlap, but are not exactly the same.
+
+### Including a categorical variable.
+
+We can effectively use the background to display categorical variables using the `geom_rect()` function within `ggplot()`.
+
+### Plotting three variables for one person
+
+```{r plot three vars,message=FALSE, warning=FALSE}
+#set colors
+cols <- c("Affect Valence"="#F27781", "Stress"="#18298C")
+#plotting intraindividual change 
+interaction_long %>%
+  filter(id == 104) %>%
+  ggplot(aes(x=interaction, group=id)) +
+  #categorical variable as background
+  geom_rect(aes(xmin=interaction-.5, xmax=interaction+.5, ymin=0, ymax=10,
+                fill=factor(partner_gender)), alpha=0.2) +
+  # first variable
+  geom_line(aes(y=agval, colour="Affect Valence")) +
+  geom_point(aes(y=agval, colour="Affect Valence")) +
+  # second variable
+  geom_line(aes(y=stress, color="Stress")) +
+  geom_point(aes(y=stress, color="Stress")) +
+  # plot layouts
+  scale_color_manual(name="", values = cols) +
+  scale_fill_manual(name = "Partner Gender",
+                    values = c("#F29E03", "#20BDA1"), 
+                    labels = c("female", "male", "missing"),
+                    na.value="black") + 
+  scale_x_continuous(breaks=c(0,8,16,24,32,40,48,56), name="Social Interaction") +
+  scale_y_continuous(breaks=c(0,2,4,6,8), name="Affect Valence & Stress") + 
+  ggtitle("Intraindividual Variability in Affect Valence and Stress\nAcross Social Interactions with Male and Female Partners (n=1)") +
+  theme_classic() +
+  theme(axis.title=element_text(size=14),
+        axis.text=element_text(size=14),
+        plot.title=element_text(size=14, hjust=.5))
+```
+
+### Plotting multiple individuals
+
+Of course, we are also interested in interindividual differences.
+To examine those, we can display multiple persons in separate panels using `facet_wrap()`.
+
+```{r plot multiple people, warning=FALSE, message=FALSE, fig.width=9, fig.height=9}
+# plotting intraindividual change 
+interaction_long %>%
+  filter(id <= 106) %>%
+  ggplot(aes(x = interaction, group= factor(id))) +
+  geom_line(aes(y=agval), colour="#F27781") +
+  geom_point(aes(y=agval), colour="#F27781") +
+  scale_x_continuous(breaks=c(0,8,16,24,32,40,48,56), name="Social Interaction") +
+  scale_y_continuous(breaks=c(1,3,5,7,9), name="Affect Valence") + 
+  ggtitle("Intraindividual Variability in Affect Valence\nAcross Social Interactions (n=5)") +
+  theme_classic() +
+  theme(axis.title=element_text(size=14),
+        axis.text=element_text(size=14),
+        plot.title=element_text(size=14, hjust=.5)) +
+  facet_wrap(~id, nrow=5)
+```
+
+```{r plot multiple 2, warning=FALSE, message=FALSE, fig.width=9, fig.height=9}
+#set colors
+cols <- c("Affect Valence"="#F27781", "Stress"="#18298C")
+#plotting intraindividual change 
+interaction_long %>%
+  filter(id <= 106) %>%
+  ggplot(aes(x = interaction, group= factor(id))) +
+  geom_line(aes(y=agval, colour="Affect Valence")) +
+  geom_point(aes(y=agval, colour="Affect Valence")) +
+  geom_line(aes(y=stress, color="Stress")) +
+  geom_point(aes(y=stress, color="Stress")) +
+  scale_x_continuous(breaks=c(0,8,16,24,32,40,48,56), name="Social Interaction") +
+  scale_y_continuous(breaks=c(0,4,8), name="Affect Valence & Stress") + 
+  scale_color_manual(name="", values = cols) +
+  ggtitle("Intraindividual Variability in Affect Valence and Stress\nAcross Social Interactions (n=5)") +
+  theme_classic() +
+  theme(axis.title=element_text(size=14),
+        axis.text=element_text(size=14),
+        plot.title=element_text(size=14, hjust=.5),
+        legend.text=element_text(size=14)) +
+  facet_wrap(~id, nrow=5)
+```
+
+```{r plot3, message=FALSE, warning=FALSE, fig.width=9, fig.height=9}
+#set colors
+cols <- c("Affect Valence"="#F27781", "Stress"="#18298C")
+#plotting intraindividual change 
+interaction_long %>%
+  filter(id <= 106) %>%
+  ggplot(aes(x = interaction, group= factor(id))) +
+  #categorical variable as background
+  geom_rect(aes(xmin=interaction-.5, xmax=interaction+.5, ymin=0, ymax=9,
+                fill=factor(partner_gender)), alpha=0.2) +
+  #first variable
+  geom_line(aes(y=agval, colour="Affect Valence")) +
+  geom_point(aes(y=agval, colour="Affect Valence")) +
+  #second variable
+  geom_line(aes(y=stress, color="Stress")) +
+  geom_point(aes(y=stress, color="Stress")) +
+  #plot layouts
+  scale_color_manual(name="", values = cols) +
+  scale_fill_manual(name = "Partner Gender",
+                    values = c("#F29E03", "#20BDA1"), 
+                    labels = c("female", "male", "missing"),
+                    na.value="black") + 
+  scale_x_continuous(breaks=c(0,8,16,24,32,40,48,56), name="Social Interaction") +
+  scale_y_continuous(breaks=c(0,2,4,6,8), name="Affect Valence & Stress") +  
+  ggtitle("Intraindividual Variability in Affect Valence and Stress\nAcross Social Interactions with Male and Female Partners (n=1)") +
+  theme_classic() +
+  theme(axis.title=element_text(size=14),
+        axis.text=element_text(size=14),
+        plot.title=element_text(size=14, hjust=.5)) +
+  facet_wrap(~id, nrow=5)
+```
+
+## Conclusion
+
+This tutorial covered some basics, including reading in repeated measures data from an experience sampling study, manipulating those data into two different structures (long and wide), assessing the overall characteristics of the data/protocol, and describing the data (descriptives and plots).
+
+We hope this foundational material prompts development of some general strategies that can be applied whenever approaching new longitudinal data.
+The best part is that, after looking at the above plots, we know that subsequent analyses will be super fun!
+
+**Thanks for playing!**
+
+## Captioned figures and tables
+
+Figures and tables *with captions* can also be cross-referenced from elsewhere in your book using `\@ref(fig:chunk-label)` and `\@ref(tab:chunk-label)`, respectively.
+
+See Figure \@ref(fig:nice-fig).
+
+```{r nice-fig, fig.cap='Here is a nice figure!', out.width='80%', fig.asp=.75, fig.align='center', fig.alt='Plot with connected points showing that vapor pressure of mercury increases exponentially as temperature increases.'}
+par(mar = c(4, 4, .1, .1))
+plot(pressure, type = 'b', pch = 19)
+```
+
+Don't miss Table \@ref(tab:nice-tab).
+
+```{r nice-tab, tidy=FALSE}
+knitr::kable(
+  head(pressure, 10), caption = 'Here is a nice table!',
+  booktabs = TRUE
+)
+```
