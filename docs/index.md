@@ -1,7 +1,7 @@
 ---
 title: "Intensive Longitudinal Analysis"
 author: "Nilam Ram, Kevin Grimm, et. al."
-date: "`r Sys.Date()`"
+date: "2025-08-14"
 site: bookdown::bookdown_site
 output: bookdown::bs4_book
 documentclass: book
