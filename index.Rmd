@@ -4,6 +4,7 @@ author: "Nilam Ram, Kevin Grimm, et. al."
 date: "`r Sys.Date()`"
 site: bookdown::bookdown_site
 output: bookdown::bs4_book
+url: 'https://the-change-lab.github.io/intensive-longitudinal-analysis/'
 documentclass: book
 cover-image: KenteKristin_cr_rotated.png
 bibliography:
